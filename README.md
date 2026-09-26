@@ -62,20 +62,4 @@ LLM_MODEL = "sarvam-30b"
 TTS_MODEL = "bulbul:v3"
 ```
 
-## Troubleshooting
 
-**`'NoneType' object has no attribute 'strip'` (Sarvam LLM call failed)**
-`sarvam-105b` is a reasoning model that defaults to `reasoning_effort="medium"`.
-Reasoning tokens are billed against `max_tokens`, so with a small token budget
-the model could burn its entire budget on hidden reasoning and return
-`content: null` in the response — which crashed the old `.strip()` call. This
-is fixed by explicitly sending `"reasoning_effort": None` (disables reasoning)
-and raising `max_tokens` to 400. If you still see the error, it now surfaces
-as a clear `RuntimeError` instead of a crash, telling you the `finish_reason`.
-
-## Notes
-
-- The LLM model id is configurable — if your Sarvam account exposes the chat
-  model under a different name, change `LLM_MODEL`.
-- All audio output is 22.05 kHz WAV, auto-played for the caregiver.
-- The request log lives in the session; use the CSV export for records.
