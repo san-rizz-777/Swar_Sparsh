@@ -10,7 +10,7 @@ Pipeline:
     Input (switch keypress / micro-utterance)
         -> Context Engine (time of day, urgency, patient state)
         -> Sarvam Saaras  (saaras:v4)        : speech-to-text for micro-utterances
-        -> Sarvam LLM     (sarvam-30b)       : expand 1-word intent into a polite,
+        -> Sarvam LLM     (sarvam-105b)      : expand 1-word intent into a polite,
                                                first-person, context-aware sentence
         -> Sarvam Bulbul  (bulbul:v3)         : natural Indic speech synthesis (WAV)
         -> Caregiver interface               : auto-playing audio + persistent log
@@ -47,9 +47,11 @@ st.set_page_config(
 
 API_BASE = "https://api.sarvam.ai"
 
-STT_MODEL = "saaras:v4"       # Sarvam Saaras speech-to-text
-LLM_MODEL = "sarvam-30b"      # Sarvam LLM (contextual expansion)
-TTS_MODEL = "bulbul:v3"       # Sarvam Bulbul text-to-speech
+STT_MODEL = "saaras:v4"           # Sarvam Saaras speech-to-text
+# NOTE: /v1/chat/completions currently serves only "sarvam-105b" and
+# "sarvam-105b-conversations". Overridable in the sidebar.
+LLM_MODEL = "sarvam-105b"
+TTS_MODEL = "bulbul:v3"           # Sarvam Bulbul text-to-speech
 
 LANGUAGES = {
     "Hindi (हिन्दी)": "hi-IN",
@@ -63,7 +65,7 @@ LANGUAGES = {
 }
 
 # Bulbul speaker catalogue (name -> voice persona)
-SPEAKERS = ["Anushka", "Abhilash", "Manisha", "Vidya", "Arya", "Karun", "Hitesh"]
+SPEAKERS = ["aditya", "ritu", "ashutosh", "priya", "neha", "rahul", "pooja"]
 
 # Default switch-intent map (KEY 1-3). Fully editable from the sidebar.
 DEFAULT_INTENTS = {
@@ -135,7 +137,8 @@ def saaras_transcribe(audio_bytes: bytes, language_code: str, api_key: str) -> s
         data=data,
         timeout=60,
     )
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"Saaras returned HTTP {r.status_code}: {r.text[:300]}")
     res = r.json()
     # Saaras returns a list of candidate transcripts
     transcripts = res.get("transcripts") or []
@@ -249,7 +252,8 @@ def bulbul_speak(text: str, language_code: str, speaker: str,
         json=payload,
         timeout=60,
     )
-    r.raise_for_status()
+    if not r.ok:
+        raise RuntimeError(f"Bulbul returned HTTP {r.status_code}: {r.text[:300]}")
     audio_b64 = r.json()["audios"][0]
     return base64.b64decode(audio_b64)
 
@@ -363,6 +367,10 @@ with st.sidebar.expander("🔐 API & Connection", expanded=True):
     st.session_state["api_key"] = st.text_input(
         "Sarvam API key", type="password",
         help="Leave empty to use the SARVAM_API_KEY environment variable.")
+    st.session_state["llm_model"] = st.text_input(
+        "LLM model ID", value=st.session_state.get("llm_model", LLM_MODEL),
+        help="/v1/chat/completions accepts sarvam-105b (flagship) or "
+              "sarvam-105b-conversations (dialogue-tuned).")
     st.session_state["demo_mode"] = st.checkbox(
         "Offline demo mode (no API calls)",
         help="Runs the pipeline with canned expansions and a placeholder tone.")
@@ -391,7 +399,7 @@ st.title("Swar-Sparsh Pro — स्वर-स्पर्श")
 st.markdown(
     "Turning minimal switch keypresses and micro-utterances into natural, "
     "context-aware speech for caregivers — powered by Sarvam AI's sovereign "
-    "Indic stack (**Saaras → Sarvam-30b → Bulbul**)."
+    "Indic stack (**Saaras → Sarvam-105b → Bulbul**)."
 )
 
 tab_switch, tab_voice, tab_text, tab_log = st.tabs(
@@ -403,13 +411,21 @@ with tab_switch:
     st.subheader("Switch Access Mode (Keys 1–3)")
     st.markdown("Each big button emulates an adaptive switch. Keyboard also works: press 1, 2 or 3.")
 
+    # NOTE: st.button only accepts type in {"primary", "secondary", "tertiary"}.
+    # "danger" is not a valid value and raises a StreamlitAPIException — the
+    # emergency key is highlighted with type="primary" + an SOS emoji instead.
+    KEY_STYLES = {
+        "KEY 1": ("secondary", "💧"),
+        "KEY 2": ("secondary", "🚻"),
+        "KEY 3": ("primary", "🆘"),
+    }
     cols = st.columns(3)
-    key_cols = list(DEFAULT_INTENTS.keys())
-    for col, k, color in zip(cols, key_cols, ["primary", "secondary", "danger"]):
+    for col, k in zip(cols, DEFAULT_INTENTS.keys()):
+        btn_type, emoji = KEY_STYLES.get(k, ("secondary", "💬"))
         with col:
             if st.button(
-                f"{k}\n\n💬 “{st.session_state.get(f'intent_{k}', DEFAULT_INTENTS[k])}”",
-                use_container_width=True, type=color,
+                f"{emoji} {k}\n\n“{st.session_state.get(f'intent_{k}', DEFAULT_INTENTS[k])}”",
+                use_container_width=True, type=btn_type,
             ):
                 run_pipeline("switch", st.session_state.get(f"intent_{k}", DEFAULT_INTENTS[k]))
 
@@ -486,7 +502,7 @@ with tab_log:
 st.divider()
 st.caption(
     "Swar-Sparsh Pro — built entirely on Sarvam AI's sovereign Indic stack: "
-    "Saaras (STT) · Sarvam-30b (LLM) · Bulbul (TTS). "
+    "Saaras (STT) · Sarvam-105b (LLM) · Bulbul (TTS). "
     "For users with ALS, Cerebral Palsy, post-stroke aphasia and other "
     "motor/speech impairments."
 )
